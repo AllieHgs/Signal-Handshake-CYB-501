@@ -14,5 +14,7 @@ class Mail():
         self.reciever = reciever
         self.message = message
         
+    def __str__(self):
+        return f"Mail\nfrom: {self.sender}\nto: {self.reciever}\nMessage:\n{self.message}\n"
 
     
