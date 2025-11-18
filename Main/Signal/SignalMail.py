@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from Interfaces.IMail import IMail
-from Main.SignalNetwork.RatchetHeader import RatchetHeader
+from Main.Signal.RatchetHeader import RatchetHeader
 
 class SignalMail(IMail):
     def __init__(self, mail:IMail, ratchetHeader:RatchetHeader=None):

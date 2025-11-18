@@ -2,15 +2,20 @@
 
 from Interfaces.INetwork import Status
 from Mock.MockNetwork import MockNetwork
-from Main.SignalNetwork.SignalNetworkDecorator import SignalNetworkDecorator
+from Main.Signal.SignalNetworkDecorator import SignalNetworkDecorator
+from Main.Signal.RatchetBuilder import RatchetBuilder
 from Main.Mail import Mail
 import asyncio
 import nest_asyncio #Needed to fix problem with asyncio in spyder
 nest_asyncio.apply() # ^
 
 async def main():
-    network = SignalNetworkDecorator(MockNetwork())
+    # Instantiate using builder
+    ratchetBuilder = RatchetBuilder()
+    
+    
     #network = MockNetwork()
+    network = SignalNetworkDecorator(MockNetwork(), ratchetBuilder)
     
     userA = "userA"
     userB = "userB"

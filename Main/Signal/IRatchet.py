@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from Main.SignalNetwork import SignalMail
+from Main.Signal.SignalMail import SignalMail
 
 class IRatchet(ABC):
     @abstractmethod

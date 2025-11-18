@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from Interfaces.INetwork import INetwork, INetworkToken
-from Main.SignalNetwork.IRatchet import IRatchet
+from Main.Signal.IRatchet import IRatchet
+from Main.Signal.RatchetBuilder import RatchetBuilder
 
 class SignalNetworkDecorator(INetwork):
-    def __init__(self, network :INetwork):
+    def __init__(self, network :INetwork, ratchetBuilder :RatchetBuilder):
         self._network = network
+        self._ratchetBuilder = ratchetBuilder
         pass
     
     async def Connect(self, userId, password) -> INetwork.ConnectResult:
         result = await self._network.Connect(userId, password)
-        result.token = SignalNetworkDecorator.Token(result.token, self)
+        result.token = SignalNetworkDecorator.Token(result.token, self, self._ratchetBuilder.Build())
         return result
         pass
 
@@ -24,10 +26,10 @@ class SignalNetworkDecorator(INetwork):
     
     
     class Token(INetworkToken):
-        def __init__(self, token :INetworkToken, network :INetwork):
+        def __init__(self, token :INetworkToken, network :INetwork, ratchet :IRatchet):
             self._token = token
             self._network = network
-            #self._ratchet = ratchet
+            self._ratchet = ratchet
             pass
         
         async def Send(self, mail) -> INetworkToken.SendResult:
