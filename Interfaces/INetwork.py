@@ -10,16 +10,17 @@ class Status(Enum):
     
 class INetwork(ABC):
     @abstractmethod
-    async def Connect(self, userId, password) -> ConnectResult:
+    async def Connect(self, userId, password) -> INetwork.ConnectResult:
         pass
     
     @abstractmethod
-    async def Register(self, userId, password) -> RegisterResult:
+    async def Register(self, userId, password) -> INetwork.RegisterResult:
         pass
     
     @abstractmethod
-    async def CheckIdAvalibility(self, userId) -> CheckIdAvalibilityResult:
+    async def CheckIdAvalibility(self, userId) -> INetwork.CheckIdAvalibilityResult:
         pass
+    
     
     class ConnectResult:
         def __init__(self, status :Status, token :INetworkToken = None):
@@ -35,22 +36,28 @@ class INetwork(ABC):
             self.status = status
             self.available = available
     
+    
+    
 class INetworkToken(ABC):
     
     @abstractmethod
-    async def Send(self, mail) -> SendResult:
+    async def Send(self, mail) -> INetworkToken.SendResult:
         pass
     
     @abstractmethod
-    async def Receive(self) -> ReceiveResult:
+    async def Receive(self) -> INetworkToken.ReceiveResult:
         pass
     
     @abstractmethod
-    async def ClearInbox(self) -> ClearInboxResult:
+    async def ClearInbox(self) -> INetworkToken.ClearInboxResult:
         pass
     
     @abstractmethod
-    async def Disconnect(self) -> DisconnectResult:
+    async def Disconnect(self) -> INetworkToken.DisconnectResult:
+        pass
+    
+    @abstractmethod
+    async def Command(self, command :str) -> INetworkToken.CommandResult:
         pass
     
     @abstractmethod
@@ -59,6 +66,7 @@ class INetworkToken(ABC):
     @abstractmethod
     def ReceiveRemoveListener(self, callback :callable):
         pass
+   
     
     class SendResult:
         def __init__ (self, status :Status):
@@ -77,6 +85,9 @@ class INetworkToken(ABC):
         def __init__(self, status :Status):
             self.status = status
             
+    class CommandResult:
+        def __init__(self, status :Status):
+            self.status = status
             
             
             
@@ -112,6 +123,9 @@ class MockNetwork(INetwork):
             pass
         
         async def Disconnect(self) -> INetworkToken.DisconnectResult:
+            pass
+        
+        async def Command(self, command :str) -> INetworkToken.CommandResult:
             pass
         
         def ReceiveAddListener(self, callback :callable):

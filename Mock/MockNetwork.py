@@ -10,7 +10,7 @@ class MockNetwork(INetwork):
     async def Connect(self, userId, password) -> INetwork.ConnectResult:
         if userId not in self._users:
             return INetwork.ConnectResult(Status.Fail)
-        return INetwork.ConnectResult(Status.Success, MockNetwork.MockNetworkToken(self,userId))
+        return INetwork.ConnectResult(Status.Success, MockNetwork.Token(self,userId))
         pass
 
     async def Register(self, userId, password) -> INetwork.RegisterResult:
@@ -34,9 +34,9 @@ class MockNetwork(INetwork):
             self.connected = connected
             pass
         
-    class MockNetworkToken(INetworkToken):
+    class Token(INetworkToken):
         def __init__(self, network, userId, connected=True):
-            self._recieveHandlers = list()
+            self._receiveHandlers = list()
             self._network = network
             self.userId = userId
             self.connected = connected
@@ -80,11 +80,20 @@ class MockNetwork(INetwork):
             
             return INetworkToken.ClearInboxResult(Status.Success)
         
+        
+        async def Command(self, command :str) -> INetworkToken.CommandResult:
+            if not self.connected:
+                return INetworkToken.CommandResult(Status.Fail)
+            
+            print(f"Mock Execute command: {command}")
+            return INetworkToken.CommandResult(Status.Success)
+            
+            
         def ReceiveAddListener(self, callback :callable):
-            self.recieveHandlers.add(callback)
+            self._receiveHandlers.add(callback)
             pass
         def ReceiveRemoveListener(self, callback :callable):
-            self.recieveHandlers.remove(callback)
+            self._receiveHandlers.remove(callback)
             pass
         
         

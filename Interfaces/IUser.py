@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from abc import ABC, abstractmethod
 
+# Obsolete
 class IUser(ABC):
     network = None
     ID = None
