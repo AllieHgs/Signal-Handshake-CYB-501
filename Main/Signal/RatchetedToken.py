@@ -3,11 +3,11 @@ class RatchetedToken:
         self.innerToken = innerToken
         self.ratchet = ratchet
 
-    async def Send(self, mail):
+    async def _Send(self, mail):
         mail.content = self.ratchet.encrypt(mail.content)
         return await self.innerToken.Send(mail)
 
-    async def Receive(self):
+    async def _Receive(self):
         result = await self.innerToken.Receive()
         if not hasattr(result, "status") or result.status != 0:
             return result
@@ -17,6 +17,3 @@ class RatchetedToken:
             decrypted.append(mail)
         result.inbox = decrypted
         return result
-
-    async def Disconnect(self):
-        return await self.innerToken.Disconnect()

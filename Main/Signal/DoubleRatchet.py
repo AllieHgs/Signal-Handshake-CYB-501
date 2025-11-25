@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from Main.Signal.IRatchet import IRatchet
-from Main.Signal.RatchetHeader import RatchetHeader
-from Main.Signal.SignalMail import SignalMail
+from Main.NetworkCommand import NetworkCommand
 
 class DoubleRatchet(IRatchet):
     def __init__(self):
         pass
     
-    def Encode(self, mail: SignalMail):
+    def Encode(self, command: NetworkCommand):
         pass
     
-    def Decode(self, mail: SignalMail):
+    def Decode(self, command: NetworkCommand):
         pass
     

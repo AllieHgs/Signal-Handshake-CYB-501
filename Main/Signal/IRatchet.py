@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from Main.Signal.SignalMail import SignalMail
+from Main.NetworkCommand import NetworkCommand
 
 class IRatchet(ABC):
     @abstractmethod
-    def Encode(self, mail: SignalMail):
+    def Encode(self, command: NetworkCommand):
         pass
     
     @abstractmethod
-    def Decode(self, mail: SignalMail):
+    def Decode(self, command: NetworkCommand):
         pass
     
