@@ -4,7 +4,7 @@
 from Interfaces.INetwork import Status, INetwork, INetworkToken, CommandResult
 from Mock.MockNetwork import MockNetwork
 from Main.Signal.SignalNetwork import SignalNetwork
-from Main.Signal.RatchetBuilder import RatchetBuilder
+from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
 from Main.Mail import Mail
 import asyncio
 import nest_asyncio #Needed to fix problem with asyncio in spyder

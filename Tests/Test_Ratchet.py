@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import unittest
-from Interfaces.INetwork import INetwork, INetworkToken, Status, CommandResult
-from Main.Signal.IRatchet import IRatchet
-from Main.Signal.DoubleRatchet import DoubleRatchet
+from Main.Signal.Ratchet.IRatchet import IRatchet
+from Main.Signal.Ratchet.Ratchet import Ratchet
+
 
 class Test_DoubleRatchet(unittest.TestCase):
     def setUp(self):
@@ -16,8 +16,9 @@ class Test_DoubleRatchet(unittest.TestCase):
         self.assertTrue(True)
         
     def test_constructs(self):
-        dratchet = DoubleRatchet()
-        self.assertTrue(dratchet is not None)
+        initData = IRatchet.InitData()
+        ratchet = Ratchet(initData)
+        self.assertTrue(ratchet is not None)
         
 
 if __name__ == '__main__':

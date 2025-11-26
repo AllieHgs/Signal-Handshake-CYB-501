@@ -16,11 +16,11 @@ class CommandResult:
         pass
     
 class INetwork(ABC):
-    @abstractmethod
+    @abstractmethod #TODO, Send not _Command
     async def _Command(self, commandRequest :NetworkCommand) -> CommandResult:
         pass
     
-    @abstractmethod
+    @abstractmethod #TODO command based
     async def _Connect(self, userId, password) -> ConnectResult():
         pass
     

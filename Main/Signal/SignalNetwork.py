@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from Interfaces.INetwork import INetwork, INetworkToken, CommandResult
-from Main.Signal.IRatchet import IRatchet
-from Main.Signal.RatchetBuilder import RatchetBuilder
+from Main.Signal.Ratchet.IRatchet import IRatchet
+from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
 from Main.NetworkCommand import NetworkCommand
 
 class SignalNetwork(INetwork):
