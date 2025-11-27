@@ -1,27 +1,21 @@
 # -*- coding: utf-8 -*-
-from Interfaces.IMail import IMail
-
-class Mail(IMail):
-    message = None
-    reciever = None
-    sender = None
-    
+class Mail:
     def __init__(self, sender, receiver, message):
         self.sender = sender
         self.receiver = receiver
         self.message = message
-    
-    def __init__(self, reciever, message):
-        self.reciever = reciever
+        
+    def __init__(self, receiver, message):
+        self.sender = ""
+        self.receiver = receiver
         self.message = message
         
     def __str__(self):
         return f"Mail\nfrom: {self.sender}\nto: {self.reciever}\nMessage:\n{self.message}\n"
 
-    def Sender(self) -> str:
-        return self.sender
-    def Reciever(self) -> str:
-        return self.receiver
-    def Message(self) -> str:
-        return self.message
-    
+    def as_dict(self):
+        return {
+            "sender": self.sender,
+            "receiver": self.receiver,
+            "message": self.message
+        }

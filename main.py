@@ -1,10 +1,10 @@
 
 # -*- coding: utf-8 -*
 
-from Interfaces.INetwork import Status
+from Interfaces.INetwork import Status, INetwork, INetworkToken, CommandResult
 from Mock.MockNetwork import MockNetwork
-from Main.Signal.SignalNetworkDecorator import SignalNetworkDecorator
-from Main.Signal.RatchetBuilder import RatchetBuilder
+from Main.Signal.SignalNetwork import SignalNetwork
+from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
 from Main.Mail import Mail
 import asyncio
 import nest_asyncio #Needed to fix problem with asyncio in spyder
@@ -16,7 +16,7 @@ async def main():
     
     
     #network = MockNetwork()
-    network = SignalNetworkDecorator(MockNetwork(), ratchetBuilder)
+    network = MockNetwork()#SignalNetwork(MockNetwork(), ratchetBuilder)
     
     userA = "userA"
     userB = "userB"
@@ -27,6 +27,8 @@ async def main():
     )
     if registerA.status == Status.Fail or registerB.status == Status.Fail:
         print("Failed to connect")
+        print(registerA.reply)
+        print(registerB.reply)
         return
     
     connectA, connectB = await asyncio.gather(
@@ -39,12 +41,12 @@ async def main():
     tokenA = connectA.token
     tokenB = connectB.token
     
-    mailA = Mail(userA,"MessageA2B")
-    mailB = Mail(userB, "MessageB2A")
-    sendB = ""
+    mailA = Mail(userB,"MessageA2B")
+    mailB = Mail(userA, "MessageB2A")
+
     sendA,sendB = await asyncio.gather(
-        tokenA.Send(mailA),
-        tokenB.Send(mailB)
+        tokenA.Mail(mailA),
+        tokenB.Mail(mailB)
     )
     if sendA.status == Status.Fail or sendB.status == Status.Fail:
         print("Failed to send")
@@ -52,8 +54,8 @@ async def main():
     
     # This would be called by an event normally, but I want to force it here
     recieveA, recieveB = await asyncio.gather(
-        tokenA.Receive(),
-        tokenB.Receive()
+        tokenA.CheckMail(),
+        tokenB.CheckMail()
     )
     if recieveA.status == Status.Fail or recieveB == Status.Fail:
         print("Failed to retrieve")
