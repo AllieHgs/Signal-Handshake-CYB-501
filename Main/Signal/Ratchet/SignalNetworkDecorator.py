@@ -1,11 +1,14 @@
 from __future__ import annotations
 from typing import Optional, List
 
-from Main.Signal.Network.INetworkToken import INetworkToken
-from Main.Signal.Network.NetworkCommand import NetworkCommand
+# FIXED IMPORTS
+from Interfaces.INetwork import Status
+from Interfaces.INetworkToken import INetworkToken
+from ..NetworkCommand import NetworkCommand
 
 from Main.Signal.Ratchet.IRatchet import IRatchet
-from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
+from Main.Signal.Ratchet.Ratchet import Ratchet
+
 
 
 class SignalNetworkDecorator(INetworkToken):
