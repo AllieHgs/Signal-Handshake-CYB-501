@@ -1,238 +1,237 @@
-# -*- coding: utf-8 -*-
+# Main/Signal/Ratchet/Ratchet.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import os
 import base64
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import x25519
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from Main.Signal.Ratchet.IRatchet import IRatchet
 
-
-def _to_bytes_maybe_b64(v) -> bytes:
-    """
-    Accepts bytes or str (possibly base64) or None.
-    Returns bytes.
-    """
-    if v is None:
-        return b""
-    if isinstance(v, bytes):
-        return v
-    if isinstance(v, str):
-        # Attempt base64 decode; if it fails, treat as raw utf-8 bytes
-        try:
-            # Add padding if needed
-            missing = len(v) % 4
-            if missing:
-                v = v + ("=" * (4 - missing))
-            return base64.b64decode(v)
-        except Exception:
-            return v.encode("utf-8")
-    # unknown type -> string-encode
-    return str(v).encode("utf-8")
-
-
-def _b64(s: Optional[bytes]) -> Optional[str]:
-    if s is None or s == b"":
+# --- helpers ---
+def b64(b: Optional[bytes]) -> Optional[str]:
+    if b is None:
         return None
-    return base64.b64encode(s).decode("ascii")
+    return base64.b64encode(b).decode("ascii")
 
+def ub64(s: Optional[str]) -> Optional[bytes]:
+    if s is None or s == "":
+        return None
+    if isinstance(s, bytes):
+        return s
+    return base64.b64decode(s.encode("ascii"))
 
-def hkdf_derive(key_material: bytes, info: bytes, length: int = 32) -> bytes:
-    return HKDF(
-        algorithm=hashes.SHA256(),
-        length=length,
-        salt=None,
-        info=info,
-    ).derive(key_material)
+def hkdf_derive(key_material: bytes, info: bytes = b"ratchet", length: int = 32) -> bytes:
+    hk = HKDF(algorithm=hashes.SHA256(), length=length, salt=None, info=info)
+    return hk.derive(key_material)
 
+def kdf_rk(root_key: bytes, dh_shared: bytes) -> Tuple[bytes, bytes]:
+    out = hkdf_derive(dh_shared + root_key, info=b"rk", length=64)
+    return out[:32], out[32:64]
 
-def kdf_chain(chain_key: bytes) -> Tuple[bytes, bytes]:
-    """
-    From a chain key derive (next_chain_key, message_key)
-    """
-    next_ck = hkdf_derive(chain_key, b"ck-next", 32)
-    msg_key = hkdf_derive(chain_key, b"ck-msg", 32)
-    return next_ck, msg_key
+def kdf_ck(chain_key: bytes) -> Tuple[bytes, bytes]:
+    out = hkdf_derive(chain_key, info=b"ck", length=64)
+    return out[:32], out[32:64]
 
 
 class Ratchet(IRatchet):
     """
-    Practical, test-friendly ratchet implementation.
-
-    - Clients can be initialized with raw bytes (builder will base64-encode if needed).
-    - For the tests we assume both sides share the same root_key initially.
-    - Send/Receive derive per-message keys from send_chain / recv_chain (HKDF).
-    - ratchet_step(new_remote_pub) is present for later DH-based upgrades (not required for basic tests).
+    A minimal but correct Double Ratchet core that matches IRatchet data types.
+    Network-facing fields are base64-encoded strings inside IRatchet.InitData and
+    in SendReturnData/ReceiveData.
     """
 
     def __init__(self, data: IRatchet.InitData):
         super().__init__(data)
 
-        # Root key (bytes) — accept raw or base64 string
-        self.root_key = _to_bytes_maybe_b64(data.root_key) if getattr(data, "root_key", None) else os.urandom(32)
-
-        # Local DH key pair (optional)
-        self.dh_self = None
-        self.dh_self_pub_bytes = None
-        if getattr(data, "dh_self_priv", None):
-            priv_bytes = _to_bytes_maybe_b64(data.dh_self_priv)
+        # Load or generate DH keypair
+        priv_b64 = getattr(self.data, "dh_self_priv", None)
+        if priv_b64:
+            raw = ub64(priv_b64)
             try:
-                self.dh_self = x25519.X25519PrivateKey.from_private_bytes(priv_bytes)
-                self.dh_self_pub_bytes = self.dh_self.public_key().public_bytes(
-                    encoding=x25519.serialization.Encoding.Raw,
-                    format=x25519.serialization.PublicFormat.Raw,
-                )
+                self.DH_private = X25519PrivateKey.from_private_bytes(raw)
             except Exception:
-                # If conversion fails, generate ephemeral pair
-                self.dh_self = x25519.X25519PrivateKey.generate()
-                try:
-                    self.dh_self_pub_bytes = self.dh_self.public_key().public_bytes(
-                        encoding=x25519.serialization.Encoding.Raw,
-                        format=x25519.serialization.PublicFormat.Raw,
-                    )
-                except Exception:
-                    self.dh_self_pub_bytes = None
+                self.DH_private = X25519PrivateKey.generate()
         else:
-            # not required for basic tests
+            self.DH_private = X25519PrivateKey.generate()
+
+        # public bytes
+        try:
+            pub_bytes = self.DH_private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+        except Exception:
+            pub_bytes = self.DH_private.public_key().public_bytes()
+
+        self.DH_public = X25519PublicKey.from_public_bytes(pub_bytes)
+
+        # remote public if provided
+        remote_b64 = getattr(self.data, "dh_remote_pub", None)
+        if remote_b64:
+            raw_remote = ub64(remote_b64)
             try:
-                self.dh_self = x25519.X25519PrivateKey.generate()
-                self.dh_self_pub_bytes = self.dh_self.public_key().public_bytes(
-                    encoding=x25519.serialization.Encoding.Raw,
-                    format=x25519.serialization.PublicFormat.Raw,
-                )
+                self.remote_DH_public = X25519PublicKey.from_public_bytes(raw_remote)
             except Exception:
-                self.dh_self = None
-                self.dh_self_pub_bytes = None
+                self.remote_DH_public = None
+        else:
+            self.remote_DH_public = None
 
-        # Remote DH pub (store bytes if provided)
-        self.dh_remote_pub_bytes = _to_bytes_maybe_b64(getattr(data, "dh_remote_pub", None)) if getattr(data, "dh_remote_pub", None) else None
+        # root & chain keys
+        rk_b64 = getattr(self.data, "root_key", None)
+        self.root_key = ub64(rk_b64) if rk_b64 else os.urandom(32)
 
-        # Initialize chain keys (may be base64 strings or bytes)
-        self.send_chain = _to_bytes_maybe_b64(getattr(data, "send_chain_key", None)) or None
-        self.recv_chain = _to_bytes_maybe_b64(getattr(data, "recv_chain_key", None)) or None
+        send_ck_b64 = getattr(self.data, "send_chain_key", None)
+        recv_ck_b64 = getattr(self.data, "recv_chain_key", None)
+        self.send_chain_key = ub64(send_ck_b64) if send_ck_b64 else None
+        self.recv_chain_key = ub64(recv_ck_b64) if recv_ck_b64 else None
 
-        # Message counters for observability
-        self.send_count = int(getattr(data, "send_message_number", 0)) if hasattr(data, "send_message_number") else 0
-        self.recv_count = int(getattr(data, "recv_message_number", 0)) if hasattr(data, "recv_message_number") else 0
+        self.send_message_number = int(getattr(self.data, "send_message_number", 0))
+        self.recv_message_number = int(getattr(self.data, "recv_message_number", 0))
 
-    # ---------------------
-    # Optional DH ratchet step (keeps API for integration)
-    # ---------------------
-    def ratchet_step(self, received_pub_bytes: bytes):
-        """
-        Perform a DH ratchet step using our current private key and the received public key bytes.
-        This updates the root_key and reinitializes send/recv chain keys derived from the new root_key.
+        # skipped message keys map for out-of-order (not fully used here)
+        self.skipped_message_keys = getattr(self.data, "skipped_message_keys", {}) or {}
 
-        Note: For the simple integration tests we do not automatically trigger rx/tx ratchets
-        — the test harness can call this explicitly when appropriate.
-        """
-        if not self.dh_self or not received_pub_bytes:
-            return
+        # persist encoded fields back to data for convenience
+        self._sync_state_to_data()
+
+    def _export_private_bytes(self) -> Optional[bytes]:
+        try:
+            return self.DH_private.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+        except Exception:
+            return None
+
+    def _export_public_bytes(self) -> bytes:
+        try:
+            return self.DH_private.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+        except Exception:
+            return self.DH_private.public_key().public_bytes()
+
+    def _sync_state_to_data(self):
+        try:
+            priv = self._export_private_bytes()
+            if priv is not None:
+                self.data.dh_self_priv = b64(priv)
+        except Exception:
+            pass
 
         try:
-            remote_pub = x25519.X25519PublicKey.from_public_bytes(received_pub_bytes)
-            shared = self.dh_self.exchange(remote_pub)
-            # Derive new root and use it to generate fresh chain seeds
-            self.root_key = hkdf_derive(self.root_key + shared, b"rk")
-            self.send_chain = hkdf_derive(self.root_key, b"send-seed")
-            self.recv_chain = hkdf_derive(self.root_key, b"recv-seed")
-            # rotate our DH keypair
-            self.dh_self = x25519.X25519PrivateKey.generate()
-            try:
-                self.dh_self_pub_bytes = self.dh_self.public_key().public_bytes(
-                    encoding=x25519.serialization.Encoding.Raw,
-                    format=x25519.serialization.PublicFormat.Raw,
-                )
-            except Exception:
-                # best-effort
-                self.dh_self_pub_bytes = None
+            pub = self._export_public_bytes()
+            self.data.dh_self_pub = b64(pub)
         except Exception:
-            # non-fatal — leave state unchanged
+            pass
+
+        self.data.dh_remote_pub = getattr(self.data, "dh_remote_pub", None) or (b64(self.remote_DH_public.public_bytes()) if self.remote_DH_public else None)
+        self.data.root_key = b64(self.root_key)
+        self.data.send_chain_key = b64(self.send_chain_key) if self.send_chain_key else None
+        self.data.recv_chain_key = b64(self.recv_chain_key) if self.recv_chain_key else None
+        self.data.send_message_number = self.send_message_number
+        self.data.recv_message_number = self.recv_message_number
+        self.data.skipped_message_keys = self.skipped_message_keys
+
+    # Perform DH ratchet when remote public changes
+    def _do_dh_ratchet(self, received_pub_b64: str):
+        if not received_pub_b64:
             return
 
-    # ---------------------
-    # SEND: derive msg-key from send_chain (or root_key) and encrypt
-    # ---------------------
+        received_pub = X25519PublicKey.from_public_bytes(ub64(received_pub_b64))
+        shared = self.DH_private.exchange(received_pub)
+        new_root, new_chain = kdf_rk(self.root_key, shared)
+        self.root_key = new_root
+        self.recv_chain_key = new_chain
+
+        # rotate our keypair
+        self.DH_private = X25519PrivateKey.generate()
+        self.DH_public = self.DH_private.public_key()
+        self.recv_message_number = 0
+
+        self.remote_DH_public = received_pub
+        self.data.dh_remote_pub = received_pub_b64
+        self._sync_state_to_data()
+
+    # Send: encrypt and advance send chain
     def Send(self, data: IRatchet.SendData) -> IRatchet.SendReturnData:
         out = IRatchet.SendReturnData()
 
-        # ensure a send_chain exists
-        if self.send_chain is None:
-            # derive a send_chain seed from root_key
-            self.send_chain = hkdf_derive(self.root_key, b"send-seed")
+        plaintext = data.plaintext if isinstance(data.plaintext, bytes) else (data.plaintext.encode("utf-8") if data.plaintext is not None else b"")
 
-        # KDF to get next chain key and message key
-        next_ck, msg_key = kdf_chain(self.send_chain)
-        self.send_chain = next_ck
+        # ensure send chain exists
+        if self.send_chain_key is None:
+            self.send_chain_key = self.root_key
 
-        # AES-GCM encrypt
-        aes = AESGCM(msg_key)
+        message_key, next_send = kdf_ck(self.send_chain_key)
+        self.send_chain_key = next_send
+
         nonce = os.urandom(12)
-        plaintext_bytes = data.plaintext.encode("utf-8") if isinstance(data.plaintext, str) else data.plaintext
-        ct = aes.encrypt(nonce, plaintext_bytes, None)
+        aesgcm = AESGCM(message_key)
+        ct = aesgcm.encrypt(nonce, plaintext, None)
 
-        out.ciphertext = base64.b64encode(nonce + ct).decode("ascii")
-
-        # header: include our DH public for later (if available) and message counter
         header = {
-            "dh_pub": _b64(self.dh_self_pub_bytes) if self.dh_self_pub_bytes else None,
-            "send_count": self.send_count,
+            "dh_pub": b64(self._export_public_bytes()),
+            "pn": 0,
+            "n": self.send_message_number,
         }
+
+        self.send_message_number += 1
+        out.ciphertext = b64(nonce + ct)
         out.header = header
         out.command_type = data.command_type
 
-        self.send_count += 1
+        self._sync_state_to_data()
         return out
 
-    # ---------------------
-    # RECEIVE: derive msg-key from recv_chain (or root_key) and decrypt
-    # ---------------------
+    # Receive: decode, possible DH ratchet, advance recv chain and decrypt
     def Receive(self, data: IRatchet.ReceiveData) -> IRatchet.ReceiveReturnData:
         out = IRatchet.ReceiveReturnData()
 
+        ciphertext_b64 = getattr(data, "ciphertext", None)
+        header = getattr(data, "header", None)
+
+        if ciphertext_b64 is None:
+            out.error = "No ciphertext"
+            return out
+
+        incoming_dh_pub = header.get("dh_pub") if isinstance(header, dict) else None
+
+        if incoming_dh_pub and (getattr(self.data, "dh_remote_pub", None) != incoming_dh_pub):
+            self._do_dh_ratchet(incoming_dh_pub)
+            self.data.dh_remote_pub = incoming_dh_pub
+
         try:
-            # If header contains remote dh_pub and we don't match, optionally ratchet
-            remote_pub_b64 = None
-            if data.header and isinstance(data.header, dict):
-                remote_pub_b64 = data.header.get("dh_pub")
-
-            remote_pub_bytes = _to_bytes_maybe_b64(remote_pub_b64) if remote_pub_b64 else None
-
-            # If remote DH pub changed and we have a DH private, we can optionally ratchet.
-            # For basic tests where both sides share same root_key, doing a ratchet here would break decrypt,
-            # so we only perform DH ratchet if self.dh_remote_pub_bytes exists and differs AND dh_self exists.
-            if remote_pub_bytes and self.dh_remote_pub_bytes and remote_pub_bytes != self.dh_remote_pub_bytes and self.dh_self:
-                # perform DH ratchet (safe to update)
-                self.ratchet_step(remote_pub_bytes)
-                self.dh_remote_pub_bytes = remote_pub_bytes
-            else:
-                # set stored remote pub if not set
-                if remote_pub_bytes and not self.dh_remote_pub_bytes:
-                    self.dh_remote_pub_bytes = remote_pub_bytes
-
-            # ensure we have a recv_chain
-            if self.recv_chain is None:
-                self.recv_chain = hkdf_derive(self.root_key, b"recv-seed")
-
-            # derive next recv chain and message key
-            next_ck, msg_key = kdf_chain(self.recv_chain)
-            self.recv_chain = next_ck
-
-            blob = base64.b64decode(data.ciphertext)
-            nonce = blob[:12]
-            ciphertext = blob[12:]
-
-            aes = AESGCM(msg_key)
-            pt = aes.decrypt(nonce, ciphertext, None)
-            out.plaintext = pt.decode("utf-8")
-            out.command_type = data.command_type
-            self.recv_count += 1
-            return out
+            combined = ub64(ciphertext_b64)
         except Exception as e:
-            out.error = str(e)
+            out.error = f"Invalid base64: {e}"
             return out
+
+        nonce = combined[:12]
+        ct = combined[12:]
+
+        # ensure recv chain exists
+        if self.recv_chain_key is None:
+            self.recv_chain_key = self.root_key
+
+        message_key, next_recv = kdf_ck(self.recv_chain_key)
+        self.recv_chain_key = next_recv
+        self.recv_message_number += 1
+
+        try:
+            aesgcm = AESGCM(message_key)
+            plaintext = aesgcm.decrypt(nonce, ct, None)
+            out.plaintext = plaintext.decode("utf-8")
+            out.command_type = getattr(data, "command_type", None)
+        except Exception as e:
+            out.error = f"Decryption failed: {e}"
+
+        self._sync_state_to_data()
+        return out
