@@ -1,19 +1,54 @@
+# Main/Signal/Ratchet/RatchetedToken.py
+
+import os
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+
 class RatchetedToken:
-    def __init__(self, innerToken, ratchet):
-        self.innerToken = innerToken
-        self.ratchet = ratchet
+    """
+    A minimal Double Ratchet placeholder.
+    For now it only rotates a symmetric AES-GCM key after each message.
+    """
 
-    async def _Send(self, mail):
-        mail.content = self.ratchet.encrypt(mail.content)
-        return await self.innerToken.Send(mail)
+    def __init__(self):
+        self.key = AESGCM.generate_key(bit_length=128)
+        self.aes = AESGCM(self.key)
 
-    async def _Receive(self):
-        result = await self.innerToken.Receive()
-        if not hasattr(result, "status") or result.status != 0:
-            return result
-        decrypted = []
-        for mail in result.inbox:
-            mail.content = self.ratchet.decrypt(mail.content)
-            decrypted.append(mail)
-        result.inbox = decrypted
-        return result
+    # ---------------------------------------------------------
+    # INTERNAL: rotate AES key every message
+    # ---------------------------------------------------------
+    def _ratchet_step(self):
+        self.key = AESGCM.generate_key(bit_length=128)
+        self.aes = AESGCM(self.key)
+
+    # ---------------------------------------------------------
+    # Encrypt plaintext to base64 string
+    # ---------------------------------------------------------
+    def encrypt(self, plaintext: str) -> str:
+        if isinstance(plaintext, str):
+            plaintext = plaintext.encode("utf-8")
+
+        nonce = os.urandom(12)
+        ciphertext = self.aes.encrypt(nonce, plaintext, None)
+        out = nonce + ciphertext
+
+        # Perform ratchet step
+        self._ratchet_step()
+
+        return out.hex()
+
+    # ---------------------------------------------------------
+    # Decrypt base64 string to plaintext
+    # ---------------------------------------------------------
+    def decrypt(self, ciphertext_hex: str) -> str:
+        data = bytes.fromhex(ciphertext_hex)
+        nonce = data[:12]
+        ciphertext = data[12:]
+
+        try:
+            plaintext = self.aes.decrypt(nonce, ciphertext, None)
+            # Ratchet step on successful decrypt
+            self._ratchet_step()
+            return plaintext.decode("utf-8")
+        except Exception:
+            return "<DECRYPT-FAIL>"

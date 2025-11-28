@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from Main.NetworkCommand import NetworkCommand
+from Main.Signal.NetworkCommand import NetworkCommand
 
 class IRatchet(ABC):
     """
