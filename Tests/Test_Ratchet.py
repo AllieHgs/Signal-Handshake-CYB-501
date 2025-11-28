@@ -1,54 +1,83 @@
 # -*- coding: utf-8 -*-
-import unittest
-from Main.Signal.Ratchet import Ratchet
-from Main.Signal.IRatchet import IRatchet
-import base64
+import sys, os
+ROOT = os.path.dirname(os.path.dirname(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
 import os
+import base64
+import asyncio
 
+from Main.Signal.Ratchet.Ratchet import Ratchet
+from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
+from Main.Signal.Ratchet.IRatchet import IRatchet
 
-class TestRatchet(unittest.TestCase):
+print("Running Ratchet Tests...\n")
 
-    def make_init(self):
-        root_key = base64.b64encode(os.urandom(32)).decode()
-        return IRatchet.InitData(root_key=root_key)
+def make_init(root_key: bytes = None):
+    root_key = root_key or os.urandom(32)
 
-    def test_encrypt_decrypt(self):
-        initA = self.make_init()
-        initB = self.make_init()
+    init = IRatchet.InitData(
+        root_key=root_key,
+        dh_self_priv=None,
+        dh_self_pub=None,
+        dh_remote_pub=None,
+        send_chain_key=None,
+        recv_chain_key=None
+    )
+    return init
 
-        A = Ratchet(initA)
-        B = Ratchet(initB)
+def test_basic_send_receive():
+    print("Test: basic send/receive", end=" ... ")
 
-        # simulate handshake exchange of DH pubkeys
-        A.data.dh_remote_pub = base64.b64encode(B.dh_self_pub.public_bytes_raw()).decode()
-        B.data.dh_remote_pub = base64.b64encode(A.dh_self_pub.public_bytes_raw()).decode()
+    # shared root key so symmetric ratchet works in test
+    shared_root = os.urandom(32)
 
-        msg = "hello world"
-        send_data = IRatchet.SendData(msg)
-        out = A.Send(send_data)
+    initA = make_init(shared_root)
+    initB = make_init(shared_root)
 
-        recv_data = IRatchet.ReceiveData(out.ciphertext, out.header)
-        received = B.Receive(recv_data)
+    # Build ratchets using builder (builder expects InitData raw values)
+    builder = RatchetBuilder()
+    ratA = builder.WithInitData(initA).Build()
+    ratB = builder.WithInitData(initB).Build()
 
-        self.assertEqual(received.plaintext, msg)
+    # A sends to B
+    send_data = IRatchet.SendData(plaintext="Hello Bob!", command_type="MESSAGE")
+    sent = ratA.Send(send_data)
 
-    def test_multiple_messages(self):
-        initA = self.make_init()
-        initB = self.make_init()
+    assert sent.ciphertext is not None, "No ciphertext produced"
+    assert sent.header is not None, "No header produced"
 
-        A = Ratchet(initA)
-        B = Ratchet(initB)
+    recv_input = IRatchet.ReceiveData(ciphertext=sent.ciphertext, header=sent.header, command_type=sent.command_type)
+    out = ratB.Receive(recv_input)
 
-        # exchange pubkeys
-        A.data.dh_remote_pub = base64.b64encode(B.dh_self_pub.public_bytes_raw()).decode()
-        B.data.dh_remote_pub = base64.b64encode(A.dh_self_pub.public_bytes_raw()).decode()
+    assert out.error is None, f"Decryption failed: {out.error}"
+    assert out.plaintext == "Hello Bob!", f"Plaintext mismatch: {out.plaintext}"
 
-        msgs = ["one", "two", "three"]
-        for m in msgs:
-            out = A.Send(IRatchet.SendData(m))
-            received = B.Receive(IRatchet.ReceiveData(out.ciphertext, out.header))
-            self.assertEqual(received.plaintext, m)
+    print("OK")
 
+def test_multiple_messages():
+    print("Test: multiple messages advancing chains", end=" ... ")
+    shared_root = os.urandom(32)
+    initA = make_init(shared_root)
+    initB = make_init(shared_root)
+
+    ratA = RatchetBuilder().WithInitData(initA).Build()
+    ratB = RatchetBuilder().WithInitData(initB).Build()
+
+    for i in range(5):
+        text = f"msg-{i}"
+        sent = ratA.Send(IRatchet.SendData(plaintext=text))
+        out = ratB.Receive(IRatchet.ReceiveData(ciphertext=sent.ciphertext, header=sent.header))
+        assert out.error is None
+        assert out.plaintext == text
+
+    print("OK")
+
+def run_all():
+    test_basic_send_receive()
+    test_multiple_messages()
+    print("\nAll tests passed.")
 
 if __name__ == "__main__":
-    unittest.main()
+    run_all()
