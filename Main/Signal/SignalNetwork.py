@@ -86,20 +86,19 @@ class SignalNetwork(Network):
     async def p_register(self, command):
         await command.token.PublishKeyBundle()
         pass
-
-    class Token(Network.Token):
-        def __init__(self, network: Network, **kwargs):
-            super().__init__(network, **kwargs)
-            self.IK_priv = SigningKey.generate()      # Ed25519 signing key (identity)
-            self.IK_pub = self.IK_priv.verify_key
-            self.SPK_priv = PrivateKey.generate()     # X25519 ephemeral signed prekey
-            self.SPK_pub = self.SPK_priv.public_key
-            self.SPK_signature = self.IK_priv.sign(self.SPK_pub.encode())  # sign SPK
-            self.OPKs = [PrivateKey.generate() for _ in range(5)]  # optional prekeys
-            self.OPKs_pub = [k.public_key for k in self.OPKs]
-            
-            # Sessions with peers: peer_id -> master secret
-            self.sessions = {}
+    
+    
+    def InitToken(self, token):
+        token.IK_priv = SigningKey.generate()      # Ed25519 signing key (identity)
+        token.IK_pub = token.IK_priv.verify_key
+        token.SPK_priv = PrivateKey.generate()     # X25519 ephemeral signed prekey
+        token.SPK_pub = token.SPK_priv.public_key
+        token.SPK_signature = token.IK_priv.sign(token.SPK_pub.encode())  # sign SPK
+        token.OPKs = [PrivateKey.generate() for _ in range(5)]  # optional prekeys
+        token.OPKs_pub = [k.public_key for k in token.OPKs]
+        
+        # Sessions with peers: peer_id -> master secret
+        token.sessions = {}
         
         def KeyBundle(self):
             return {
@@ -108,11 +107,18 @@ class SignalNetwork(Network):
                 "SPK_sig": self.SPK_signature.hex(),
                 "OPKs": [k.encode().hex() for k in self.OPKs_pub]
             }
-    
+        Network.Token.KeyBundle = KeyBundle
+        
         async def PublishKeyBundle(self):
             pub_keys = self.KeyBundle()
             command = NetworkCommand().With("pub_keys",pub_keys)
             return await self.Send(command)
+        Network.Token.PublishKeyBundle = PublishKeyBundle
+
+        
+        
+    
+        
     
         
         

@@ -16,3 +16,6 @@ class RatchetNetwork(Network):
     @Network.receivehandler("mail")
     async def r_mail(self, command):
         return command
+    
+    def InitToken(self, token):
+        pass

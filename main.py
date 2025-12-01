@@ -12,33 +12,42 @@ import asyncio
 import nest_asyncio
 nest_asyncio.apply()
 
+import os
+os.environ['PYTHONASYNCIODEBUG'] = '1'
+debug = True
+
 async def main():
+    #if(debug):loop.set_debug()
     #0-3
     NetworkCommand.verbosity = 1
     server = MockServer()
     server.log = True
     network = NetworkLeaf(server)
     network = SignalNetwork(network)
-    #network = RatchetNetwork(network)
+    network = RatchetNetwork(network)
     
     userA = "userA"
     userB = "userB"
 
     # Register users
-    registerA, registerB = await asyncio.gather(
+    registerA = await network.Register(userA, "passA")
+    registerB = await network.Register(userB, "passB")
+    """registerA, registerB = await asyncio.gather(
         network.Register(userA, "passA"),
         network.Register(userB, "passB")
-    )
+    )"""
     if registerA.IsFailed() or registerB.IsFailed():
         print("Failed to register")
         return
 
     # Connect users — tokens returned here are *wrapped* with ratchets
-    connectA, connectB = await asyncio.gather(
+    connectA = await network.Connect(userA, "passA")
+    connectB = await network.Connect(userB, "passB")
+    """connectA, connectB = await asyncio.gather(
         network.Connect(userA, "passA"),
         network.Connect(userB, "passB")
-    )
-
+    )"""
+    
     if connectA.IsFailed() or connectB.IsFailed():
         print("Failed to connect")
         return
@@ -51,19 +60,23 @@ async def main():
     mailB = Mail(userA, "MessageB2A")
 
     # Send encrypted messages
-    sendA, sendB = await asyncio.gather(
+    sendA = await tokenA.Mail(mailA)
+    sendB = await tokenB.Mail(mailB)
+    """sendA, sendB = await asyncio.gather(
         tokenA.Mail(mailA),
         tokenB.Mail(mailB)
-    )
+    )"""
     if sendA.IsFailed() or sendB.IsFailed():
         print("Failed to send")
         return
     
     # This would be called by an event normally, but I want to force it here
-    receiveA, receiveB = await asyncio.gather(
+    receiveA = await tokenA.CheckMail()
+    receiveB = await tokenB.CheckMail()
+    """receiveA, receiveB = await asyncio.gather(
         tokenA.CheckMail(),
         tokenB.CheckMail()
-    )
+    )"""
     if receiveA.IsFailed() or receiveB.IsFailed():
         print("Failed to retrieve")
         return
@@ -76,11 +89,14 @@ async def main():
         print(mail)
     print("")
     
-    await asyncio.gather(
+    disconnectA = await tokenA.Disconnect()
+    disconnectB = await tokenB.Disconnect()
+    """await asyncio.gather(
         tokenA.Disconnect(),
         tokenB.Disconnect()
-    )
+    )"""
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    
+    asyncio.run(main(),debug=debug)

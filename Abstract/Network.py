@@ -87,10 +87,17 @@ class Network(ABC):
         if handler is not None: await handler(self, command)
         
         return command
-    def CreateToken(self, **kwargs):
-        return self.Token(self, **kwargs)
+    
+    def InitToken(self, token):
+        return token
+        
     #End Virtual Methods
     
+    def CreateToken(self, **kwargs):
+        token = Network.Token(self)
+        if hasattr(self, "network"): self.network.InitToken(token)
+        self.InitToken(token)
+        return token
     
     _sendTable = {}
     _sendPreTable = {}
