@@ -1,54 +1,116 @@
 # Main/Signal/Ratchet/RatchetedToken.py
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+from typing import List, Any
+from Interfaces.INetwork import INetworkToken, CommandResult, Status
+from Main.Signal.NetworkCommand import NetworkCommand
+from Main.Signal.Ratchet.IRatchet import IRatchet
 
-import os
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-
-class RatchetedToken:
+class RatchetedToken(INetworkToken):
     """
-    A minimal Double Ratchet placeholder.
-    For now it only rotates a symmetric AES-GCM key after each message.
+    Wraps an INetworkToken and encrypts/decrypts NetworkCommand payloads
+    using an IRatchet instance.
     """
 
-    def __init__(self):
-        self.key = AESGCM.generate_key(bit_length=128)
-        self.aes = AESGCM(self.key)
+    def __init__(self, inner_token: INetworkToken, ratchet: IRatchet):
+        super().__init__()
+        self._inner = inner_token
+        self._ratchet = ratchet
+        # propagate userId if available
+        self.userId = getattr(inner_token, "userId", None)
 
-    # ---------------------------------------------------------
-    # INTERNAL: rotate AES key every message
-    # ---------------------------------------------------------
-    def _ratchet_step(self):
-        self.key = AESGCM.generate_key(bit_length=128)
-        self.aes = AESGCM(self.key)
+    # ------------------------------------------------------
+    # Low-level send: encrypt a NetworkCommand's serialized payload
+    # ------------------------------------------------------
+    async def _Send(self, command: NetworkCommand) -> CommandResult:
+        """
+        Expectation:
+         - command is a NetworkCommand whose payload fields are the plaintext.
+         - We'll serialize the whole command as JSON string, encrypt it, and
+           send a wrapper network command "Encrypted" with ciphertext & header.
+        """
+        # Serialize entire command to JSON string
+        serialized = command.Serialize()
 
-    # ---------------------------------------------------------
-    # Encrypt plaintext to base64 string
-    # ---------------------------------------------------------
-    def encrypt(self, plaintext: str) -> str:
-        if isinstance(plaintext, str):
-            plaintext = plaintext.encode("utf-8")
+        send_data = IRatchet.SendData(plaintext=serialized, command_type=command.Operation())
+        enc = self._ratchet.Send(send_data)
 
-        nonce = os.urandom(12)
-        ciphertext = self.aes.encrypt(nonce, plaintext, None)
-        out = nonce + ciphertext
+        wrapper = NetworkCommand("Encrypted").With("ciphertext", enc.ciphertext).With("header", enc.header)
 
-        # Perform ratchet step
-        self._ratchet_step()
+        # send via inner token
+        return await self._inner._Send(wrapper)
 
-        return out.hex()
+    # ------------------------------------------------------
+    # Low-level receive: decrypt any Encrypted commands returned
+    # ------------------------------------------------------
+    async def _Receive(self) -> list[NetworkCommand]:
+        """
+        Calls inner._Receive() which should return list[NetworkCommand] or a CommandResult.
+        To be tolerant, handle both styles:
+          - If inner._Receive returns CommandResult with reply containing commands,
+            try to extract.
+          - If returns list of NetworkCommand, treat directly.
+        """
+        inner_result = await self._inner._Receive()
 
-    # ---------------------------------------------------------
-    # Decrypt base64 string to plaintext
-    # ---------------------------------------------------------
-    def decrypt(self, ciphertext_hex: str) -> str:
-        data = bytes.fromhex(ciphertext_hex)
-        nonce = data[:12]
-        ciphertext = data[12:]
+        # If the inner returns a CommandResult-like object (status + reply)
+        if isinstance(inner_result, CommandResult):
+            # expecting reply to be a NetworkCommand or list
+            if inner_result.status != Status.Success:
+                return inner_result
+            payload = inner_result.reply
+            # If reply contains "inbox" list of dict items (older mock), attempt extraction:
+            if hasattr(payload, "Get") and payload.Contains("inbox"):
+                inbox = payload.Get("inbox") or []
+                out = []
+                for item in inbox:
+                    # Legacy server stores {sender, receiver, message}
+                    if isinstance(item, dict) and "message" in item:
+                        # create synthetic NetworkCommand with message
+                        nc = NetworkCommand("Mail").With("sender", item.get("sender")).With("receiver", item.get("receiver")).With("message", item.get("message"))
+                        out.append(nc)
+                return out
+            # else fall through
+            return []
+        # If the inner returned a list of commands:
+        commands: List[NetworkCommand] = inner_result if isinstance(inner_result, list) else []
+        output: List[NetworkCommand] = []
+        for cmd in commands:
+            if cmd.Is("Encrypted"):
+                ciphertext = cmd.Get("ciphertext")
+                header = cmd.Get("header")
+                recv = IRatchet.ReceiveData(ciphertext=ciphertext, header=header, command_type=cmd.Operation())
+                dec = self._ratchet.Receive(recv)
+                if dec.error is not None:
+                    # failed to decrypt: drop or append placeholder
+                    continue
+                # plaintext is serialized NetworkCommand -> deserialize
+                try:
+                    original = NetworkCommand.Deserialize(dec.plaintext)
+                    output.append(original)
+                except Exception:
+                    # if cannot deserialize, skip
+                    continue
+            else:
+                # pass-through
+                output.append(cmd)
 
-        try:
-            plaintext = self.aes.decrypt(nonce, ciphertext, None)
-            # Ratchet step on successful decrypt
-            self._ratchet_step()
-            return plaintext.decode("utf-8")
-        except Exception:
-            return "<DECRYPT-FAIL>"
+        return output
+
+    # pass-through convenience wrappers
+    async def Mail(self, mail):
+        # encrypt message only (older pattern)
+        wrapper_cmd = NetworkCommand("mail").With("sender", mail.sender).With("receiver", mail.receiver).With("message", mail.message)
+        res = await self._Send(wrapper_cmd)
+        return res
+
+    async def CheckMail(self):
+        # ask inner token for inbox (older pattern)
+        cmd = NetworkCommand("Get").With("key", "inbox")
+        result = await self._inner._Send(cmd)
+        # If result not success, return as-is
+        if isinstance(result, CommandResult) and result.status != Status.Success:
+            return result
+        # Try to extract inbox and decrypt each message
+        # Let the caller handle result shape (this matches older mocks)
+        return result

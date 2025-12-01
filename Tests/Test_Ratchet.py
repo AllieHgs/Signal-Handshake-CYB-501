@@ -1,54 +1,113 @@
-# -*- coding: utf-8 -*-
-import unittest
-from Main.Signal.Ratchet import Ratchet
-from Main.Signal.IRatchet import IRatchet
-import base64
+# Tests/Test_Ratchet.py
+# Minimal unit test for the Ratchet implementation.
 import os
+import base64
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from Main.Signal.Ratchet.IRatchet import IRatchet
+from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
+
+def b64(b: bytes) -> str:
+    return base64.b64encode(b).decode("ascii")
+
+def ub64(s: str) -> bytes:
+    return base64.b64decode(s.encode("ascii"))
 
 
-class TestRatchet(unittest.TestCase):
+def make_init_pair():
+    """
+    Create shared root_key and two init structures (A and B) such that
+    Ratchet(A) and Ratchet(B) can successfully exchange a message.
+    """
+    # shared root key (32 bytes)
+    root_key = os.urandom(32)
 
-    def make_init(self):
-        root_key = base64.b64encode(os.urandom(32)).decode()
-        return IRatchet.InitData(root_key=root_key)
+    # generate X25519 keypairs for both sides
+    privA = X25519PrivateKey.generate()
+    privB = X25519PrivateKey.generate()
 
-    def test_encrypt_decrypt(self):
-        initA = self.make_init()
-        initB = self.make_init()
+    privA_bytes = privA.private_bytes(
+        encoding = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.Encoding.Raw,
+        format = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.PrivateFormat.Raw,
+        encryption_algorithm = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.NoEncryption()
+    )
 
-        A = Ratchet(initA)
-        B = Ratchet(initB)
+    privB_bytes = privB.private_bytes(
+        encoding = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.Encoding.Raw,
+        format = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.PrivateFormat.Raw,
+        encryption_algorithm = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.NoEncryption()
+    )
 
-        # simulate handshake exchange of DH pubkeys
-        A.data.dh_remote_pub = base64.b64encode(B.dh_self_pub.public_bytes_raw()).decode()
-        B.data.dh_remote_pub = base64.b64encode(A.dh_self_pub.public_bytes_raw()).decode()
+    pubA_bytes = privA.public_key().public_bytes(
+        encoding = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.Encoding.Raw,
+        format = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.PublicFormat.Raw
+    )
 
-        msg = "hello world"
-        send_data = IRatchet.SendData(msg)
-        out = A.Send(send_data)
+    pubB_bytes = privB.public_key().public_bytes(
+        encoding = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.Encoding.Raw,
+        format = __import__("cryptography.hazmat.primitives.serialization", fromlist=["serialization"]).serialization.PublicFormat.Raw
+    )
 
-        recv_data = IRatchet.ReceiveData(out.ciphertext, out.header)
-        received = B.Receive(recv_data)
+    # Build InitData objects with base64-encoded fields
+    initA = IRatchet.InitData(
+        root_key = b64(root_key),
+        dh_self_priv = b64(privA_bytes),
+        dh_self_pub = b64(pubA_bytes),
+        dh_remote_pub = b64(pubB_bytes),
+        send_chain_key = "",
+        recv_chain_key = "",
+    )
 
-        self.assertEqual(received.plaintext, msg)
+    initB = IRatchet.InitData(
+        root_key = b64(root_key),
+        dh_self_priv = b64(privB_bytes),
+        dh_self_pub = b64(pubB_bytes),
+        dh_remote_pub = b64(pubA_bytes),
+        send_chain_key = "",
+        recv_chain_key = "",
+    )
 
-    def test_multiple_messages(self):
-        initA = self.make_init()
-        initB = self.make_init()
+    return initA, initB
 
-        A = Ratchet(initA)
-        B = Ratchet(initB)
 
-        # exchange pubkeys
-        A.data.dh_remote_pub = base64.b64encode(B.dh_self_pub.public_bytes_raw()).decode()
-        B.data.dh_remote_pub = base64.b64encode(A.dh_self_pub.public_bytes_raw()).decode()
+def test_basic_send_receive():
+    print("Running Ratchet basic send/receive test...")
 
-        msgs = ["one", "two", "three"]
-        for m in msgs:
-            out = A.Send(IRatchet.SendData(m))
-            received = B.Receive(IRatchet.ReceiveData(out.ciphertext, out.header))
-            self.assertEqual(received.plaintext, m)
+    initA, initB = make_init_pair()
+
+    # Build ratchets using the RatchetBuilder API
+    builderA = RatchetBuilder().WithInitData(initA)
+    builderB = RatchetBuilder().WithInitData(initB)
+
+    ratA = builderA.Build()
+    ratB = builderB.Build()
+
+    # A -> B
+    plaintext = "Hello Bob! This is Alice."
+    send_data = ratA.Send(IRatchet.SendData(plaintext=plaintext))
+    assert send_data.ciphertext is not None, "Send produced no ciphertext"
+    assert isinstance(send_data.header, dict), "Send produced no header"
+
+    recv_data_obj = IRatchet.ReceiveData(ciphertext=send_data.ciphertext, header=send_data.header)
+    out = ratB.Receive(recv_data_obj)
+
+    assert out.error is None, f"Decryption failed: {out.error}"
+    assert out.plaintext == plaintext, f"Decrypted plaintext mismatch: {out.plaintext!r} != {plaintext!r}"
+
+    print("A -> B passed.")
+
+    # B -> A (round-trip)
+    plaintext2 = "Reply from Bob to Alice."
+    send2 = ratB.Send(IRatchet.SendData(plaintext=plaintext2))
+    assert send2.ciphertext is not None
+
+    recv2 = ratA.Receive(IRatchet.ReceiveData(ciphertext=send2.ciphertext, header=send2.header))
+    assert recv2.error is None, f"Round-trip decryption failed: {recv2.error}"
+    assert recv2.plaintext == plaintext2, "Round-trip plaintext mismatch"
+
+    print("B -> A passed.")
+    print("All Ratchet tests passed.")
 
 
 if __name__ == "__main__":
-    unittest.main()
+    test_basic_send_receive()
+
