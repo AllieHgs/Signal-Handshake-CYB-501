@@ -7,9 +7,10 @@ from Main.Signal.RatchetNetwork import RatchetNetwork
 from Mock.MockServer import MockServer
 from Main.NetworkCommand import NetworkCommand, Status
 from Main.Mail import Mail
+
 import asyncio
-import nest_asyncio #Needed to fix problem with asyncio in spyder
-nest_asyncio.apply() # ^
+import nest_asyncio
+nest_asyncio.apply()
 
 async def main():
     #0-3
@@ -22,7 +23,8 @@ async def main():
     
     userA = "userA"
     userB = "userB"
-    
+
+    # Register users
     registerA, registerB = await asyncio.gather(
         network.Register(userA, "passA"),
         network.Register(userB, "passB")
@@ -30,10 +32,11 @@ async def main():
     if registerA.IsFailed() or registerB.IsFailed():
         print("Failed to register")
         return
-    
+
+    # Connect users — tokens returned here are *wrapped* with ratchets
     connectA, connectB = await asyncio.gather(
-        network.Connect("userA", "passA"),
-        network.Connect("userB", "passB")
+        network.Connect(userA, "passA"),
+        network.Connect(userB, "passB")
     )
 
     if connectA.IsFailed() or connectB.IsFailed():
@@ -42,11 +45,13 @@ async def main():
 
     tokenA = connectA.token
     tokenB = connectB.token
-    
-    mailA = Mail(userB,"MessageA2B")
+
+    # Create mail objects
+    mailA = Mail(userB, "MessageA2B")
     mailB = Mail(userA, "MessageB2A")
 
-    sendA,sendB = await asyncio.gather(
+    # Send encrypted messages
+    sendA, sendB = await asyncio.gather(
         tokenA.Mail(mailA),
         tokenB.Mail(mailB)
     )
@@ -76,6 +81,6 @@ async def main():
         tokenB.Disconnect()
     )
 
-  
+
 if __name__ == "__main__":
     asyncio.run(main())
