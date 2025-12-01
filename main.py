@@ -1,22 +1,24 @@
-
 # -*- coding: utf-8 -*
 
-from Interfaces.INetwork import Status, INetwork, INetworkToken, CommandResult
-from Mock.MockNetwork import MockNetwork
+from Abstract.Network import Network
+from Main.NetworkLeaf import NetworkLeaf
 from Main.Signal.SignalNetwork import SignalNetwork
-from Main.Signal.Ratchet.RatchetBuilder import RatchetBuilder
+from Main.Signal.RatchetNetwork import RatchetNetwork
+from Mock.MockServer import MockServer
+from Main.NetworkCommand import NetworkCommand, Status
 from Main.Mail import Mail
 import asyncio
 import nest_asyncio #Needed to fix problem with asyncio in spyder
 nest_asyncio.apply() # ^
 
 async def main():
-    # Instantiate using builder
-    ratchetBuilder = RatchetBuilder()
-    
-    
-    #network = MockNetwork()
-    network = MockNetwork()#SignalNetwork(MockNetwork(), ratchetBuilder)
+    #0-3
+    NetworkCommand.verbosity = 1
+    server = MockServer()
+    server.log = True
+    network = NetworkLeaf(server)
+    network = SignalNetwork(network)
+    #network = RatchetNetwork(network)
     
     userA = "userA"
     userB = "userB"
@@ -25,19 +27,19 @@ async def main():
         network.Register(userA, "passA"),
         network.Register(userB, "passB")
     )
-    if registerA.status == Status.Fail or registerB.status == Status.Fail:
-        print("Failed to connect")
-        print(registerA.reply)
-        print(registerB.reply)
+    if registerA.IsFailed() or registerB.IsFailed():
+        print("Failed to register")
         return
     
     connectA, connectB = await asyncio.gather(
         network.Connect("userA", "passA"),
         network.Connect("userB", "passB")
     )
-    if connectA.status == Status.Fail or connectB.status == Status.Fail:
+
+    if connectA.IsFailed() or connectB.IsFailed():
         print("Failed to connect")
         return
+
     tokenA = connectA.token
     tokenB = connectB.token
     
@@ -48,24 +50,26 @@ async def main():
         tokenA.Mail(mailA),
         tokenB.Mail(mailB)
     )
-    if sendA.status == Status.Fail or sendB.status == Status.Fail:
+    if sendA.IsFailed() or sendB.IsFailed():
         print("Failed to send")
         return
     
     # This would be called by an event normally, but I want to force it here
-    recieveA, recieveB = await asyncio.gather(
+    receiveA, receiveB = await asyncio.gather(
         tokenA.CheckMail(),
         tokenB.CheckMail()
     )
-    if recieveA.status == Status.Fail or recieveB == Status.Fail:
+    if receiveA.IsFailed() or receiveB.IsFailed():
         print("Failed to retrieve")
         return
     
-    print("Recieving mail...\n")
-    for mail in recieveA.inbox:
+    print(f"{userA}'s inbox:")
+    for mail in receiveA.inbox:
         print(mail)
-    for mail in recieveB.inbox:
+    print(f"{userB}'s inbox:")
+    for mail in receiveB.inbox:
         print(mail)
+    print("")
     
     await asyncio.gather(
         tokenA.Disconnect(),
