@@ -78,14 +78,17 @@ class NetworkLeaf(Network):
     async def s_disconnect(self, command):
         command.token.connected = False
         return command
-    
+    @Network.sendhandler("Register", pre=True)
+    async def sp_register(self, command):
+        command.token.With("userId", command.Get("userId",""))
+        return command
+        
     @Network.replyhandler("Connect")
     async def p_connect(self, command):
-        print(vars(command.token))
         tkn = command.token
         command.token = self.CreateToken(**command.Get("token", {}))
-        command.token.connected = True
         command.token.With("userId", command.Get("userId", ""))
+        command.token.connected = True
         return command
         
     def userId(self):

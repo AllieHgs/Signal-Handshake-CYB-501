@@ -28,7 +28,11 @@ class ListenFor(Flag):
     All = Message | Command | Reply
     
 class Network(ABC):
-    
+    def __init__(self, network = None):
+        if network is not None:
+            self.network = network
+            self.network.outter = self
+        
     #Virtual Methods
     async def Send(self, command :NetworkCommand) -> NetworkCommand:
         if command.token is None: 
@@ -95,8 +99,15 @@ class Network(ABC):
     
     def CreateToken(self, **kwargs):
         token = Network.Token(self)
-        if hasattr(self, "network"): self.network.InitToken(token)
-        self.InitToken(token)
+        network = self
+        while(hasattr(network, "outter")): network = network.outter
+        
+        network.InitToken(token)
+        token.network = network
+        
+        while hasattr(network, "network"): 
+            network.InitToken(token)
+            network = network.network
         return token
     
     _sendTable = {}

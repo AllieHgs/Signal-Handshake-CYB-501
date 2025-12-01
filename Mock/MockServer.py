@@ -30,7 +30,11 @@ class MockServer(IServer):
             reply = self._Get(command.Get("userId", ""), command.Get("key", ""))
         elif command.Is("Set"):
             reply = self._Get(command.Get("userId", ""), command.Get("key", ""), command.Get("value", ""))
-        
+        elif command.Is("GetPrekeyBundle"):
+            reply = self.GetPrekeyBundle(command)
+        elif command.Is("PublishKeyBundle"):
+            reply = self.PublishKeyBundle(command)
+            
         # default
         else:
             reply = NetworkCommand(command.Operation()).RST().With("reason","Invaild request.")
@@ -82,6 +86,10 @@ class MockServer(IServer):
             "salt": "",
             "passwordHash": "",
             "publicKeys": list(),
+            "IK":"",
+            "SPK":"",
+            "SPK_sig":"",
+            "OPKs": list(),
         }
         return NetworkCommand("register").ACK()
 
@@ -102,10 +110,35 @@ class MockServer(IServer):
         
         self._users[userId][key] = value
         return NetworkCommand("set").ACK()
+    
+    def GetPrekeyBundle(self, command):
+        reply = NetworkCommand(command.Operation())
+        user = self._users.get(command.Get("userId"))
+        if user is None: return reply.RST()
         
+        reply.With("bundle", {})
+        reply.WithInner("bundle", "IK", user["IK"])
+        reply.WithInner("bundle", "SPK", user["SPK"])
+        reply.WithInner("bundle", "SPK_sig", user["SPK_sig"])
+        if len(user["OPKs"]) > 0:
+            reply.WithInner("bundle","OPK", user["OPKs"].pop())
+        return reply
+    
+    def PublishKeyBundle(self, command):
+        user = self._users.get(command.Get("userId"), None)
+        bundle = command.Get("bundle")
+        user["IK"] = bundle["IK"]
+        user["SPK"] = bundle["SPK"]
+        user["SPK_sig"] = bundle["SPK_sig"]
+        user["OPKs"].extend(bundle.get("OPKs", []))
+        return NetworkCommand(command.Operation()).ACK()
+        
+    
     
     def _UserIdIsRegistered(self, userId :str):
         return userId in self._users
     
     async def Ignore(command :NetworkCommand):
         pass
+    
+    

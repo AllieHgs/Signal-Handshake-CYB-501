@@ -3,7 +3,7 @@
 from Abstract.Network import Network
 from Main.NetworkLeaf import NetworkLeaf
 from Main.Signal.SignalNetwork import SignalNetwork
-from Main.Signal.RatchetNetwork import RatchetNetwork
+from Main.Signal.Ratchet.RatchetNetwork import RatchetNetwork
 from Mock.MockServer import MockServer
 from Main.NetworkCommand import NetworkCommand, Status
 from Main.Mail import Mail
@@ -20,11 +20,13 @@ async def main():
     #if(debug):loop.set_debug()
     #0-3
     NetworkCommand.verbosity = 1
+    NetworkCommand.HideKeys("IK", "IK_priv","IK_pub","SPK","SPK_priv","SPK_sig","SPK_pub","OPKs", "OPKs_pub", "pub_keys")
+    
     server = MockServer()
     server.log = True
     network = NetworkLeaf(server)
-    network = SignalNetwork(network)
-    network = RatchetNetwork(network)
+    #network = SignalNetwork(network)
+    #network = RatchetNetwork(network)
     
     userA = "userA"
     userB = "userB"

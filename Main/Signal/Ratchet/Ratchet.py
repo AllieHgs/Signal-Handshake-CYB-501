@@ -5,7 +5,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import x25519
 
-from Main.Signal.IRatchet import IRatchet
+from Main.Signal.Ratchet.IRatchet import IRatchet
 
 
 class Ratchet(IRatchet):

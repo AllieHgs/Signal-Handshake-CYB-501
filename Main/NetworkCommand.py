@@ -33,6 +33,10 @@ class NetworkCommand:
     def With(self, key :str, value) -> NetworkCommand:
         self.kwargs[key] = value
         return self
+    def Without(self, key) -> NetworkCommand:
+        self.kwargs.pop(key)
+        return self
+    
     def WithInner(self, key, innerKey, value) -> NetworkCommand:
         self.kwargs.setdefault(key, dict())
         self.kwargs[key][innerKey] = value
@@ -154,6 +158,14 @@ class NetworkCommand:
         
         return cls(**data)
     
+    _dontPrintKeys = set()
+    @classmethod
+    def HideKeys(cls, *args):
+        cls._dontPrintKeys = cls._dontPrintKeys.union(args)
+        
+    def hideKeys(self, *args):
+        if not hasattr(self, "_dontPrintKeys"): self._dontPrintKeys = set()
+        self._dontPrintKeys = self._dontPrintKeys.union(args)
     
     def __str__(self):
         """ Verbosity
@@ -174,16 +186,15 @@ class NetworkCommand:
         
         # Use self verbosity if present, otherwise class verbosity
         verbosity = self.verbosity if hasattr(self, "verbosity") else self.__class__.verbosity
+        if verbosity <= 0: return s
         
-        if verbosity <= 0:
-            return s
-        
-        keyFilter = ["operation", "flags"]
+        dontPrintKeys = self._dontPrintKeys if hasattr(self, "_dontPrintKeys") else self.__class__._dontPrintKeys
+        keyFilter = dontPrintKeys.union(["operation", "flags"])
         if verbosity <= 1:
-            keyFilter += ["commandid", "replyto", "uuid", "token"]
+            keyFilter = keyFilter.union(["commandid", "replyto", "uuid", "token"])
         if verbosity <= 2:
-            keyFilter += ["version", "protocol"]
+            keyFilter = keyFilter.union(["version", "protocol"])
         
-        
+        #print(f"Hiding Keys {keyFilter}")
         s += str(dict(filter(lambda x: x[0] not in keyFilter, self.kwargs.items())))
         return s

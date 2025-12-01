@@ -6,26 +6,21 @@ from Main.NetworkCommand import NetworkCommand
 from nacl.public import PrivateKey, PublicKey
 from nacl.signing import SigningKey, VerifyKey
 
-from Main.Signal.crypto_x3dh import compute_x3dh_shared_secret_initiator
+from Main.Signal.crypto_x3dh import compute_x3dh_shared_secret_initiator, compute_x3dh_shared_secret_responder
 from nacl.secret import SecretBox
 from nacl.utils import random
 
 
 class SignalNetwork(Network):
-    def __init__(self, network :Network):
-        self.network = network
-        pass
-    
     
     @Network.sendhandler("mail")
-    async def sig_s_mail(self, command):
+    async def s_mail(self, command):
         recipient = command.Get("receiver")
         
         # if no session, do X3DH
         if recipient not in command.token.sessions:
             bundle_cmd = await self.Send(NetworkCommand("GetPrekeyBundle", userId=recipient))
-            
-            bundle = bundle_cmd.Get("bundle")
+            bundle = bundle_cmd.reply.Get("bundle")
             
             # decode keys from hex
             IK_B = VerifyKey(bytes.fromhex(bundle["IK"]))
@@ -52,40 +47,36 @@ class SignalNetwork(Network):
             box = SecretBox(key)
             ciphertext = box.encrypt(command.Get("message").encode())
             command.With("message", ciphertext.hex())
-            command.WithInner("bundle","E", E_pub.encode().hex())
+        
         return command
     
     @Network.receivehandler("mail")
-    async def sig_r_mail(self, command):
+    async def r_mail(self, command):
         sender = command.Get("sender")
-        
-        # If we don't have a session, derive it from initiator's ephemeral key
-        if sender not in command.token.sessions:
-            bundle = command.Get("bundle")
-            # decode keys
-            IK_A = VerifyKey(bytes.fromhex(bundle["IK"]))
-            E_A = PublicKey(bytes.fromhex(bundle["E"]))  # ephemeral key from sender
-            
-            master_secret = compute_x3dh_shared_secret_initiator(
-                IK_B=command.token.IK_priv.to_curve25519_private_key(),
-                SPK_B=command.token.SPK_priv,
-                IK_A=IK_A.to_curve25519_public_key(),
-                E_A=E_A
+        if sender not in self.sessions:
+            master_secret = compute_x3dh_shared_secret_responder(
+                IK_B=self.IK_priv.to_curve25519_private_key(),
+                SPK_B=self.SPK_priv,
+                OPK_B=None,  # optional
+                IK_A=PublicKey(bytes.fromhex(command.Get("IK_A"))),
+                E_A=PublicKey(bytes.fromhex(command.Get("E_A"))),
             )
+            self.sessions[sender] = master_secret
             
-            command.token.sessions[sender] = master_secret
-    
-        # Decrypt message
-        key = command.token.sessions[sender][:32]
-        box = SecretBox(key)
-        decrypted = box.decrypt(bytes.fromhex(command.Get("message")))
-        command.With("message", decrypted.decode())
+            key = master_secret[:32]
+            box = SecretBox(key)
+            ciphertext = bytes.fromhex(command.Get("message"))
+            plaintext = box.decrypt(ciphertext).decode()
+            command.With("message", plaintext)
+        
         return command
-    
+        
     @Network.replyhandler("register")
     async def p_register(self, command):
-        await command.token.PublishKeyBundle()
-        pass
+        if command.IsFailed(): return command
+        print()
+        bundle = await command.token.PublishKeyBundle()
+        return command
     
     
     def InitToken(self, token):
@@ -110,8 +101,8 @@ class SignalNetwork(Network):
         Network.Token.KeyBundle = KeyBundle
         
         async def PublishKeyBundle(self):
-            pub_keys = self.KeyBundle()
-            command = NetworkCommand().With("pub_keys",pub_keys)
+            bundle = self.KeyBundle()
+            command = NetworkCommand("PublishKeyBundle").With("bundle", bundle).With("userId", token.Get("userId"))
             return await self.Send(command)
         Network.Token.PublishKeyBundle = PublishKeyBundle
 
